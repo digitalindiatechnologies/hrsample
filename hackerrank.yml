@@ -1,0 +1,26 @@
+version: 1.0
+configuration:
+  has_webserver: false
+  readonly_paths:
+    - src/app.py
+    - src/tests/*
+    - src/main/__init__.py
+    - src/main/base/*
+    - src/main/job/__init__.py
+    - make.sh
+    - hackerrank.yml
+    - README.md
+    - requirements.txt
+    - data/*
+  scoring:
+    command: "pip3 install -r requirements.txt; py.test -p no:warnings --junitxml=unit.xml"
+    files:
+      - unit.xml
+  ide_config:
+    default_open_files:
+      - src/app.py
+      - src/main/job/pipeline.py
+    project_menu:
+      run: "python3 src/app.py data/data_file1.csv data/data_file2.csv"
+      install: "pip3 install -r requirements.txt"
+      test: "py.test -p no:warnings"
