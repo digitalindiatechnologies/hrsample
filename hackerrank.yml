@@ -13,7 +13,7 @@ configuration:
     - requirements.txt
     - data/*
   scoring:
-    command: "pip3 install -r requirements.txt; py.test -p no:warnings --junitxml=unit.xml"
+    command: "python3 -m pip install -r requirements.txt; python3 -m pytest -p no:warnings --junitxml=unit.xml"
     files:
       - unit.xml
   ide_config:
@@ -22,5 +22,5 @@ configuration:
       - src/main/job/pipeline.py
     project_menu:
       run: "python3 src/app.py data/data_file1.csv data/data_file2.csv"
-      install: "pip3 install -r requirements.txt"
-      test: "py.test -p no:warnings"
+      install: "python3 -m pip install -r requirements.txt"
+      test: "python3 -m pytest -p no:warnings"

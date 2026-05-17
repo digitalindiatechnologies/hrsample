@@ -135,11 +135,11 @@ python3 src/app.py data/data_file1.csv data/data_file2.csv
 Install:
 
 ```bash
-pip3 install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 Test:
 
 ```bash
-py.test -p no:warnings
+python3 -m pytest -p no:warnings
 ```
