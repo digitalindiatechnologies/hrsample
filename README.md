@@ -1,124 +1,145 @@
-# python-pyspark-base
-Template for creating pyspark python based project questions
+# Hard PySpark Assessment: Customer SCD Type 2 Merge
 
-## Environment:
-- Spark Version: 3.0.1
-- Python Version: 3.7
+## Environment
+- Spark Version: 3.x
+- Python Version: 3.8+
 
-## Read-Only Files:
-### < In case any project has more read only files apart from below add in the below list>
+## Read-Only Files
 - `src/app.py`
 - `src/tests/test_pipeline.py`
 - `src/main/__init__.py`
 - `src/main/base/__init__.py`
 - `src/main/job/__init__.py`
-- `make.sh`
+- `hackerrank.yml`
+- `requirements.txt`
 - `data/*`
 
-## Requirements:
-### <Add the detailed test requirement>
-Template for creating pyspark python based project questions
+Candidates should implement only:
+
+- `src/main/job/pipeline.py`
+
+## Problem
+
+You are building the customer dimension loader for an analytics warehouse. The warehouse stores customer records as a Slowly Changing Dimension Type 2 table.
+
+Two CSV files are provided:
+
+### `data_file1.csv`: Existing customer dimension
+
+Columns:
+
+- `customer_id`
+- `full_name`
+- `email`
+- `city`
+- `loyalty_tier`
+- `effective_start_date`
+- `effective_end_date`
+- `is_current`
+- `version`
+
+`effective_end_date = 9999-12-31` means the row is currently active.
+
+### `data_file2.csv`: Incoming customer change events
+
+Columns:
+
+- `customer_id`
+- `full_name`
+- `email`
+- `city`
+- `loyalty_tier`
+- `event_ts`
+- `op`
+- `ingestion_id`
+
+`op` can be:
+
+- `UPSERT`: insert a new customer or apply a changed customer state
+- `DELETE`: close the current customer record without inserting a replacement row
+
+## Candidate Tasks
+
+Implement the following methods in `src/main/job/pipeline.py`.
+
+### 1. `init_spark_session(self)`
+
+Create and return a local Spark session.
+
+### 2. `latest_customer_changes(self, customer_events_df)`
+
+Return the latest valid event per `customer_id`.
+
+Rules:
+
+- Ignore rows where `customer_id` is null or blank.
+- Ignore rows whose `op` is not `UPSERT` or `DELETE`.
+- If a customer has multiple events in the batch, keep only the event with the greatest `event_ts`.
+- If multiple events have the same `event_ts`, keep the one with the greatest numeric `ingestion_id`.
+- Add an `event_date` column derived from `event_ts`.
+
+### 3. `apply_customer_scd2(self, existing_dim_df, customer_events_df)`
+
+Apply the compacted changes from `latest_customer_changes` to the existing dimension.
+
+Rules:
+
+- Preserve all existing historical rows where `is_current = false`.
+- For a new `UPSERT` customer, insert version `1` with:
+  - `effective_start_date = event_date`
+  - `effective_end_date = 9999-12-31`
+  - `is_current = true`
+- For an existing customer where any tracked attribute changed, close the old current row and insert a new current row.
+- Tracked attributes are `full_name`, `email`, `city`, and `loyalty_tier`.
+- A closed row must have:
+  - `effective_end_date = event_date - 1 day`
+  - `is_current = false`
+  - original `version`
+- A replacement row must have:
+  - `version = previous current version + 1`
+  - `effective_start_date = event_date`
+  - `effective_end_date = 9999-12-31`
+  - `is_current = true`
+- If an `UPSERT` event has the same tracked attributes as the current row, treat it as a no-op.
+- For a `DELETE` event on an existing current customer, close the current row and do not insert a replacement row.
+- A `DELETE` event for a customer without a current row should not create any output row.
+
+### 4. `current_customer_snapshot(self, scd2_df)`
+
+Return only current customer rows with the columns:
+
+- `customer_id`
+- `full_name`
+- `email`
+- `city`
+- `loyalty_tier`
+- `version`
+
+## Expected Output
+
+The application prints:
+
+1. The final SCD2 dimension after applying the batch.
+2. The current customer snapshot.
+
+The unit tests validate correctness using Spark DataFrame comparisons.
 
 ## Commands
-- run: 
+
+Run:
+
 ```bash
-source venv/bin/activate; cd src; python3 app.py ../data/data_file1.csv ../data/data_file2.csv
-```
-- install: 
-```bash
-bash install.sh; source venv/bin/activate; pip3 install -r requirements.txt
-```
-- test: 
-```bash
-source venv/bin/activate; cd src; py.test -p no:warnings
+python3 src/app.py data/data_file1.csv data/data_file2.csv
 ```
 
-## Instructions                                       
-  - This template is only applicable for dataframe tests with csv as input
-  - Follow the below steps to create a new project from this template
+Install:
 
+```bash
+pip3 install -r requirements.txt
+```
 
-# Step-1 - Create sample data files                              
+Test:
 
-/data
-- All the test related csv's will go inside data/*.csv
-- If test requires 2 data files provide names "data_file1.csv", "data_file2.csv"
-- If test requires 3 data files provide names "data_file1.csv", "data_file2.csv", "data_file3.csv"
-  and so on
-  
-  
-# Step-2 - Create abstract methods need to be implemented
-
-/src/main/base/__init__.py
-
-- In __init__.py is the abstract class where below method are already defined 
-  - read_csv(input_path)
-  - stop()
-- No need to change or update or remove init_spark_session() method  
-- rest all, define unimplemented methods by adding @abc.abstractmethod above it
-  - In the template we have created 2 sample methods below, take these as reference and create another methods
-    distinct_ids()
-    valid_age_count()
-    
-    
-# Step-3 - Create job pipeline for umimplemented methods           
-
-/src/main/job/pipeline.py
-
-- No need to change or update or remove init_spark_session() method  
-- create placeholder of all unimplemented methods defined in abstract class
-  - In the template we have created 2 sample methods below, take these as reference and create another methods
-    distinct_ids()
-    valid_age_count()
-    
-
-# Step-4 - Create test pipeline for umimplemented methods                  
-
-/src/tests/test_pipeline.py
-- Create the schema and sample data for the number of sample data files, we have created 2 sample below methods, take these as reference and create
-    data_file1_schema
-    data_file1_sample
-    data_file2_schema
-    data_file2_sample
-    - Like that if you have 3 files create schema and sample for the 3rd one and so on.
-    
-- No need to change or update or remove create_sample() method, this is used to create the dataframe from the sample data and schema
-
-- create tests of all unimplemented methods defined in abstract class
-    - No need to change or update or remove test_init_spark_session() test.
-    - use "test_" before the method you wanted to implement, see the 2 sample tests in the template we have created, take these as reference and create another methods
-    test_distinct_ids()
-    test_valid_age_count()
-    - you can create multiple tests based on multiple sample data sets, see second test of test_valid_age_count2()
-        - Create another sample data data_file2_sample2
-        - Create another test test_valid_age_count2()
-        
-
-# Step-5 - Create driver file i.e. app.py                     
-
-/src/app.py
-
-- In this file you need to read the csv file for the dataframe of unimplemented methods.
-    - use read_csv method to read all the data csv files and get the dataframes.
-        - see samples under "<<Reading CSV>>"
-    - call the functions by passing the dataframes and print the output
-        - see samples under <<Distinct IDs>> and << Valid age records is greater than equal 18 >>
-        - In case you have more functions use the same pattern and display the output
-        
-
-# Step-6 - Changes in hackerrank.yml, make.sh, requirements.txt                          
- 
-/hackerrank.yml
-- Not much change in this file, only one change i.e. based on command line arguments passed
-    - Under configuration/ide_config/project_menu add or remove the data files based on the question.
-        run: "source venv/bin/activate; cd src; python3 app.py ../data/data_file1.csv ../data/data_file2.csv"   
-    - If question has 2 data files keep as it is no change.
-    - If question has 3 data files add one more parameter as below and so on.
-        run: "source venv/bin/activate; cd src; python3 app.py ../data/data_file1.csv ../data/data_file2.csv ../data/data_file3.csv"
-    
-/make.sh
-- No change keep as is
-
-/requirements.txt
-- No change keep as is
-     
+```bash
+py.test -p no:warnings
+```

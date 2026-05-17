@@ -16,11 +16,15 @@ class PySparkJobInterface(abc.ABC):
         return self.spark.read.options(header=True, inferSchema=True).csv(input_path)
 
     @abc.abstractmethod
-    def distinct_ids(self, data_file1: DataFrame) -> int:
+    def latest_customer_changes(self, customer_events_df: DataFrame) -> DataFrame:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def valid_age_count(self, data_file2: DataFrame) -> int:
+    def apply_customer_scd2(self, existing_dim_df: DataFrame, customer_events_df: DataFrame) -> DataFrame:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def current_customer_snapshot(self, scd2_df: DataFrame) -> DataFrame:
         raise NotImplementedError
 
     def stop(self) -> None:

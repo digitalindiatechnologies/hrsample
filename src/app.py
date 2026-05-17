@@ -4,20 +4,18 @@ from main.job.pipeline import PySparkJob
 
 def main():
     job = PySparkJob()
-    # Load input data to DataFrame
+
     print("<<Reading CSV>>")
-    sample_data_file1_df = job.read_csv(sys.argv[1])
-    sample_data_file2_df = job.read_csv(sys.argv[2])
+    existing_dim_df = job.read_csv(sys.argv[1])
+    customer_events_df = job.read_csv(sys.argv[2])
 
-    # Get number of distinct IDs
-    print("<<Distinct IDs>>")
-    nb_distinct_ids = job.distinct_ids(sample_data_file1_df)
-    print(nb_distinct_ids)
+    print("<<Final Customer SCD2 Dimension>>")
+    scd2_df = job.apply_customer_scd2(existing_dim_df, customer_events_df)
+    scd2_df.orderBy("customer_id", "version").show(truncate=False)
 
-    # Get number of valid age
-    print("<< Valid age records is greater than equal 18 >>")
-    nb_valid_age = job.valid_age_count(sample_data_file2_df)
-    print(nb_valid_age)
+    print("<<Current Customer Snapshot>>")
+    snapshot_df = job.current_customer_snapshot(scd2_df)
+    snapshot_df.orderBy("customer_id").show(truncate=False)
 
     job.stop()
 

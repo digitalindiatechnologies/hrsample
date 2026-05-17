@@ -1,11 +1,8 @@
-id,order_no
-a844,3124
-a331,3812
-a807,2773
-a331,3769
-a24,3010
-a844,4359
-a24,2342
-a331,4621
-a807,4298
-a844,3587
+customer_id,full_name,email,city,loyalty_tier,effective_start_date,effective_end_date,is_current,version
+C001,Alice Rao,alice@example.com,Mumbai,Silver,2024-01-01,9999-12-31,true,1
+C002,Bob Sen,bob.old@example.com,Delhi,Silver,2023-05-01,2024-01-31,false,1
+C002,Bob Sen,bob@example.com,Delhi,Gold,2024-02-01,9999-12-31,true,2
+C003,Cara Iyer,cara@example.com,Bengaluru,Bronze,2024-03-01,9999-12-31,true,1
+C004,David Kim,david@example.com,Chennai,Gold,2024-01-15,2024-04-30,false,2
+C004,David Kim,david@example.com,Chennai,Gold,2024-05-01,9999-12-31,true,3
+C005,Eva Bose,eva@example.com,Kolkata,Silver,2024-01-01,2024-05-31,false,1

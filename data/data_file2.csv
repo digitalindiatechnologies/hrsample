@@ -1,21 +1,10 @@
-name,age
-a,12
-b,34
-c,33
-d,44
-e,26
-f,46
-g,10
-h,17
-i,19
-j,72
-k,61
-l,59
-m,66
-n,19
-o,17
-p,15
-q,55
-r,32
-s,8
-t,12
+customer_id,full_name,email,city,loyalty_tier,event_ts,op,ingestion_id
+C001,Alice Rao,alice@example.com,Hyderabad,Silver,2024-06-15 08:30:00,UPSERT,10
+C001,Alice Rao,alice@example.com,Pune,Silver,2024-07-01 09:00:00,UPSERT,11
+C002,Bob Sen,bob@example.com,Delhi,Gold,2024-07-02 10:00:00,UPSERT,12
+C003,Cara Iyer,cara@example.com,Bengaluru,Bronze,2024-07-03 18:00:00,DELETE,13
+C004,David Kim,david@example.com,Jaipur,Gold,2024-07-05 09:00:00,UPSERT,14
+C004,David Kim,david@example.com,Jaipur,Platinum,2024-07-05 09:00:00,UPSERT,15
+C006,Fatima Ali,fatima@example.com,Kochi,Bronze,2024-07-04 12:00:00,UPSERT,16
+C007,Gita Shah,gita@example.com,Surat,Gold,2024-07-04 12:00:00,MERGE,17
+,Missing Customer,missing@example.com,Noida,Silver,2024-07-04 12:00:00,UPSERT,18
