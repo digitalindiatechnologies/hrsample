@@ -1,4 +1,4 @@
-# Hard PySpark Assessment: Customer SCD Type 2 Merge
+# PySpark Assessment: Customer SCD Type 2 Merge
 
 ## Environment
 - Spark Version: 3.x
@@ -20,13 +20,85 @@ Candidates should implement only:
 
 ## Problem
 
-You are building the customer dimension loader for an analytics warehouse. The warehouse stores customer records as a Slowly Changing Dimension Type 2 table.
+A retail loyalty team maintains a customer dimension table using Slowly Changing Dimension Type 2 logic.
 
-Two CSV files are provided:
+You are given one CSV file: `data/data_file1.csv`.
 
-### `data_file1.csv`: Existing customer dimension
+The same file contains two kinds of rows:
+
+- `row_type = DIM`: the current customer dimension rows already present in the warehouse
+- `row_type = EVENT`: incoming customer update events for the daily batch
+
+## Dataset
 
 Columns:
+
+- `row_type`
+- `customer_id`
+- `full_name`
+- `email`
+- `city`
+- `loyalty_tier`
+- `effective_start_date`
+- `effective_end_date`
+- `is_current`
+- `version`
+- `event_ts`
+- `op`
+
+The sample data has five records:
+
+| row_type | customer_id | scenario |
+| --- | --- | --- |
+| DIM | C001 | Existing current customer in Mumbai |
+| DIM | C002 | Existing current customer in Delhi |
+| EVENT | C001 | City changed from Mumbai to Pune |
+| EVENT | C002 | No attribute change |
+| EVENT | C003 | New customer |
+
+Input data:
+
+```text
++--------+-----------+----------+-----------------+------+------------+--------------------+------------------+----------+-------+-------------------+------+
+|row_type|customer_id|full_name |email            |city  |loyalty_tier|effective_start_date|effective_end_date|is_current|version|event_ts           |op    |
++--------+-----------+----------+-----------------+------+------------+--------------------+------------------+----------+-------+-------------------+------+
+|DIM     |C001       |Alice Rao |alice@example.com|Mumbai|Silver      |2024-01-01          |9999-12-31        |true      |1      |null               |null  |
+|DIM     |C002       |Bob Sen   |bob@example.com  |Delhi |Gold        |2024-02-01          |9999-12-31        |true      |2      |null               |null  |
+|EVENT   |C001       |Alice Rao |alice@example.com|Pune  |Silver      |null                |null              |null      |null   |2024-07-01 09:00:00|UPSERT|
+|EVENT   |C002       |Bob Sen   |bob@example.com  |Delhi |Gold        |null                |null              |null      |null   |2024-07-02 10:00:00|UPSERT|
+|EVENT   |C003       |Farah Khan|farah@example.com|Kochi |Bronze      |null                |null              |null      |null   |2024-07-03 11:00:00|UPSERT|
++--------+-----------+----------+-----------------+------+------------+--------------------+------------------+----------+-------+-------------------+------+
+```
+
+## Candidate Tasks
+
+Implement the following methods in `src/main/job/pipeline.py`.
+
+### 1. `init_spark_session(self)`
+
+Create and return a local Spark session.
+
+### 2. `apply_customer_scd2(self, customer_activity_df)`
+
+Build the final SCD Type 2 customer dimension from the single input dataframe.
+
+Rules:
+
+- Split the input into existing dimension rows where `row_type = DIM` and event rows where `row_type = EVENT`.
+- Process only `UPSERT` events.
+- Tracked attributes are `full_name`, `email`, `city`, and `loyalty_tier`.
+- If an existing customer receives an `UPSERT` with any changed tracked attribute:
+  - close the old current row with `effective_end_date = event_date - 1 day`
+  - set the old row `is_current = false`
+  - insert a new current row with `version = old version + 1`
+- If an existing customer receives an `UPSERT` with no tracked attribute changes, keep the current row unchanged.
+- If a new customer receives an `UPSERT`, insert version `1`.
+- New current rows must have:
+  - `effective_start_date = event_date`
+  - `effective_end_date = 9999-12-31`
+  - `is_current = true`
+
+Return columns in this exact order:
 
 - `customer_id`
 - `full_name`
@@ -38,73 +110,7 @@ Columns:
 - `is_current`
 - `version`
 
-`effective_end_date = 9999-12-31` means the row is currently active.
-
-### `data_file2.csv`: Incoming customer change events
-
-Columns:
-
-- `customer_id`
-- `full_name`
-- `email`
-- `city`
-- `loyalty_tier`
-- `event_ts`
-- `op`
-- `ingestion_id`
-
-`op` can be:
-
-- `UPSERT`: insert a new customer or apply a changed customer state
-- `DELETE`: close the current customer record without inserting a replacement row
-
-## Candidate Tasks
-
-Implement the following methods in `src/main/job/pipeline.py`.
-
-### 1. `init_spark_session(self)`
-
-Create and return a local Spark session.
-
-### 2. `latest_customer_changes(self, customer_events_df)`
-
-Return the latest valid event per `customer_id`.
-
-Rules:
-
-- Ignore rows where `customer_id` is null or blank.
-- Ignore rows whose `op` is not `UPSERT` or `DELETE`.
-- If a customer has multiple events in the batch, keep only the event with the greatest `event_ts`.
-- If multiple events have the same `event_ts`, keep the one with the greatest numeric `ingestion_id`.
-- Add an `event_date` column derived from `event_ts`.
-
-### 3. `apply_customer_scd2(self, existing_dim_df, customer_events_df)`
-
-Apply the compacted changes from `latest_customer_changes` to the existing dimension.
-
-Rules:
-
-- Preserve all existing historical rows where `is_current = false`.
-- For a new `UPSERT` customer, insert version `1` with:
-  - `effective_start_date = event_date`
-  - `effective_end_date = 9999-12-31`
-  - `is_current = true`
-- For an existing customer where any tracked attribute changed, close the old current row and insert a new current row.
-- Tracked attributes are `full_name`, `email`, `city`, and `loyalty_tier`.
-- A closed row must have:
-  - `effective_end_date = event_date - 1 day`
-  - `is_current = false`
-  - original `version`
-- A replacement row must have:
-  - `version = previous current version + 1`
-  - `effective_start_date = event_date`
-  - `effective_end_date = 9999-12-31`
-  - `is_current = true`
-- If an `UPSERT` event has the same tracked attributes as the current row, treat it as a no-op.
-- For a `DELETE` event on an existing current customer, close the current row and do not insert a replacement row.
-- A `DELETE` event for a customer without a current row should not create any output row.
-
-### 4. `current_customer_snapshot(self, scd2_df)`
+### 3. `current_customer_snapshot(self, scd2_df)`
 
 Return only current customer rows with the columns:
 
@@ -115,21 +121,33 @@ Return only current customer rows with the columns:
 - `loyalty_tier`
 - `version`
 
-## Expected Output
+## Expected Result
 
-The application prints:
+After processing the five records:
 
-1. The final SCD2 dimension after applying the batch.
-2. The current customer snapshot.
+- `C001` should have two SCD rows: old Mumbai row closed on `2024-06-30`, new Pune row starting `2024-07-01`.
+- `C002` should remain unchanged because its event has the same tracked attributes.
+- `C003` should be inserted as a new current customer with version `1`.
 
-The unit tests validate correctness using Spark DataFrame comparisons.
+Expected final SCD2 output:
+
+```text
++-----------+----------+-----------------+------+------------+--------------------+------------------+----------+-------+
+|customer_id|full_name |email            |city  |loyalty_tier|effective_start_date|effective_end_date|is_current|version|
++-----------+----------+-----------------+------+------------+--------------------+------------------+----------+-------+
+|C001       |Alice Rao |alice@example.com|Mumbai|Silver      |2024-01-01          |2024-06-30        |false     |1      |
+|C001       |Alice Rao |alice@example.com|Pune  |Silver      |2024-07-01          |9999-12-31        |true      |2      |
+|C002       |Bob Sen   |bob@example.com  |Delhi |Gold        |2024-02-01          |9999-12-31        |true      |2      |
+|C003       |Farah Khan|farah@example.com|Kochi |Bronze      |2024-07-03          |9999-12-31        |true      |1      |
++-----------+----------+-----------------+------+------------+--------------------+------------------+----------+-------+
+```
 
 ## Commands
 
 Run:
 
 ```bash
-python3 src/app.py data/data_file1.csv data/data_file2.csv
+python3 src/app.py data/data_file1.csv
 ```
 
 Install:

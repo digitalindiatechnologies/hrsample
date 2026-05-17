@@ -1,12 +1,12 @@
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
-from pyspark.sql.window import Window
 from main.base import PySparkJobInterface
 
 
 class PySparkJob(PySparkJobInterface):
 
     def init_spark_session(self) -> SparkSession:
+        print("STEP 1: Creating Spark session")
         return (
             SparkSession.builder
             .master("local[*]")
@@ -14,32 +14,16 @@ class PySparkJob(PySparkJobInterface):
             .getOrCreate()
         )
 
-    def latest_customer_changes(self, customer_events_df: DataFrame) -> DataFrame:
-        events = (
-            customer_events_df
-            .withColumn("customer_id", F.trim(F.col("customer_id")))
-            .withColumn("op", F.upper(F.trim(F.col("op"))))
-            .withColumn("event_timestamp", F.to_timestamp("event_ts"))
-            .withColumn("event_date", F.to_date("event_ts"))
-            .withColumn("ingestion_id_long", F.col("ingestion_id").cast("long"))
-            .filter(F.col("customer_id").isNotNull() & (F.col("customer_id") != ""))
-            .filter(F.col("op").isin("UPSERT", "DELETE"))
-            .filter(F.col("event_timestamp").isNotNull())
-        )
+    def print_df(self, step_name: str, df: DataFrame) -> None:
+        print("\n" + "=" * 80)
+        print(step_name)
+        print("=" * 80)
+        df.show(truncate=False)
 
-        latest_window = Window.partitionBy("customer_id").orderBy(
-            F.col("event_timestamp").desc(),
-            F.col("ingestion_id_long").desc_nulls_last(),
-        )
+    def apply_customer_scd2(self, customer_activity_df: DataFrame) -> DataFrame:
+        print("\nSTEP 2: Starting SCD Type 2 processing")
+        self.print_df("Input customer activity dataframe", customer_activity_df)
 
-        return (
-            events
-            .withColumn("rn", F.row_number().over(latest_window))
-            .filter(F.col("rn") == 1)
-            .drop("rn", "event_timestamp", "ingestion_id_long")
-        )
-
-    def apply_customer_scd2(self, existing_dim_df: DataFrame, customer_events_df: DataFrame) -> DataFrame:
         dim_columns = [
             "customer_id",
             "full_name",
@@ -51,92 +35,110 @@ class PySparkJob(PySparkJobInterface):
             "is_current",
             "version",
         ]
-
         tracked_columns = ["full_name", "email", "city", "loyalty_tier"]
 
+        cleaned = (
+            customer_activity_df
+            .withColumn("row_type", F.upper(F.trim(F.col("row_type"))))
+            .withColumn("op", F.upper(F.trim(F.col("op"))))
+            .withColumn("customer_id", F.trim(F.col("customer_id")))
+        )
+        self.print_df("STEP 3: Clean row_type, op, and customer_id", cleaned)
+
         dim = (
-            existing_dim_df
+            cleaned
+            .filter(F.col("row_type") == "DIM")
             .withColumn("effective_start_date", F.to_date("effective_start_date"))
             .withColumn("effective_end_date", F.to_date("effective_end_date"))
             .withColumn("is_current", F.col("is_current").cast("boolean"))
             .withColumn("version", F.col("version").cast("int"))
             .select(dim_columns)
         )
+        self.print_df("STEP 4: Existing dimension rows where row_type = DIM", dim)
 
-        changes = self.latest_customer_changes(customer_events_df).alias("chg")
+        events = (
+            cleaned
+            .filter((F.col("row_type") == "EVENT") & (F.col("op") == "UPSERT"))
+            .withColumn("event_date", F.to_date("event_ts"))
+            .filter(F.col("customer_id").isNotNull() & (F.col("customer_id") != ""))
+            .select(
+                "customer_id",
+                "full_name",
+                "email",
+                "city",
+                "loyalty_tier",
+                "event_date",
+            )
+            .alias("evt")
+        )
+        self.print_df("STEP 5: Incoming UPSERT event rows with event_date", events)
+
         current = dim.filter(F.col("is_current") == F.lit(True)).alias("cur")
         historical = dim.filter(F.col("is_current") == F.lit(False)).select(dim_columns)
+        self.print_df("STEP 6: Current dimension rows before merge", current)
+        self.print_df("STEP 7: Historical dimension rows before merge", historical)
 
-        joined = changes.join(current, on="customer_id", how="left")
+        joined = events.join(current, on="customer_id", how="left")
+        self.print_df("STEP 8: Join events to current dimension rows", joined)
 
         current_exists = F.col("cur.version").isNotNull()
         same_attributes = None
         for column_name in tracked_columns:
-            comparison = F.col("chg." + column_name).eqNullSafe(F.col("cur." + column_name))
+            comparison = F.col("evt." + column_name).eqNullSafe(F.col("cur." + column_name))
             same_attributes = comparison if same_attributes is None else same_attributes & comparison
 
-        upserts_to_insert = joined.filter(
-            (F.col("chg.op") == "UPSERT")
-            & (~current_exists | ~same_attributes)
-        )
+        upserts_to_insert = joined.filter(~current_exists | ~same_attributes)
+        changed_existing = upserts_to_insert.filter(current_exists)
+        self.print_df("STEP 9: Events that need a new current row", upserts_to_insert)
+        self.print_df("STEP 10: Existing customers whose current row must be closed", changed_existing)
 
-        upserts_to_close = upserts_to_insert.filter(current_exists)
-
-        deletes_to_close = joined.filter(
-            (F.col("chg.op") == "DELETE")
-            & current_exists
-        )
-
-        close_projection = [
+        closed_current = changed_existing.select(
             F.col("customer_id"),
             F.col("cur.full_name").alias("full_name"),
             F.col("cur.email").alias("email"),
             F.col("cur.city").alias("city"),
             F.col("cur.loyalty_tier").alias("loyalty_tier"),
             F.col("cur.effective_start_date").alias("effective_start_date"),
-            F.date_sub(F.col("chg.event_date"), 1).alias("effective_end_date"),
+            F.date_sub(F.col("evt.event_date"), 1).alias("effective_end_date"),
             F.lit(False).alias("is_current"),
             F.col("cur.version").alias("version"),
-        ]
-
-        rows_to_close = (
-            upserts_to_close
-            .select(*close_projection)
-            .unionByName(deletes_to_close.select(*close_projection))
         )
-
-        close_keys = rows_to_close.select("customer_id").distinct()
+        self.print_df("STEP 11: Closed old current rows", closed_current)
 
         unchanged_current = (
             current
-            .join(close_keys, on="customer_id", how="left_anti")
+            .join(closed_current.select("customer_id"), on="customer_id", how="left_anti")
             .select(dim_columns)
         )
-
-        closed_current = rows_to_close.select(dim_columns)
+        self.print_df("STEP 12: Current rows that remain unchanged", unchanged_current)
 
         inserted_current = upserts_to_insert.select(
             F.col("customer_id"),
-            F.col("chg.full_name").alias("full_name"),
-            F.col("chg.email").alias("email"),
-            F.col("chg.city").alias("city"),
-            F.col("chg.loyalty_tier").alias("loyalty_tier"),
-            F.col("chg.event_date").alias("effective_start_date"),
+            F.col("evt.full_name").alias("full_name"),
+            F.col("evt.email").alias("email"),
+            F.col("evt.city").alias("city"),
+            F.col("evt.loyalty_tier").alias("loyalty_tier"),
+            F.col("evt.event_date").alias("effective_start_date"),
             F.to_date(F.lit("9999-12-31")).alias("effective_end_date"),
             F.lit(True).alias("is_current"),
             (F.coalesce(F.col("cur.version"), F.lit(0)) + F.lit(1)).cast("int").alias("version"),
         )
+        self.print_df("STEP 13: Inserted new current rows", inserted_current)
 
-        return (
+        final_scd2 = (
             historical
             .unionByName(unchanged_current)
             .unionByName(closed_current)
             .unionByName(inserted_current)
             .select(dim_columns)
         )
+        self.print_df("STEP 14: Final SCD Type 2 dimension", final_scd2)
+
+        return final_scd2
 
     def current_customer_snapshot(self, scd2_df: DataFrame) -> DataFrame:
-        return (
+        print("\nSTEP 15: Building current customer snapshot")
+        snapshot = (
             scd2_df
             .filter(F.col("is_current") == F.lit(True))
             .select(
@@ -148,3 +150,6 @@ class PySparkJob(PySparkJobInterface):
                 "version",
             )
         )
+        self.print_df("STEP 16: Final current customer snapshot", snapshot)
+
+        return snapshot

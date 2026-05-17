@@ -6,11 +6,10 @@ def main():
     job = PySparkJob()
 
     print("<<Reading CSV>>")
-    existing_dim_df = job.read_csv(sys.argv[1])
-    customer_events_df = job.read_csv(sys.argv[2])
+    customer_activity_df = job.read_csv(sys.argv[1])
 
     print("<<Final Customer SCD2 Dimension>>")
-    scd2_df = job.apply_customer_scd2(existing_dim_df, customer_events_df)
+    scd2_df = job.apply_customer_scd2(customer_activity_df)
     scd2_df.orderBy("customer_id", "version").show(truncate=False)
 
     print("<<Current Customer Snapshot>>")

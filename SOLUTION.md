@@ -2,27 +2,21 @@
 
 The reference implementation is in `src/main/job/pipeline.py`.
 
+The assessment now uses a single input dataset with five records:
+
+- two existing dimension rows
+- one changed customer event
+- one no-op customer event
+- one new customer event
+
 Core approach:
 
-1. Build a local Spark session.
-2. Clean and compact incoming events with a `row_number` window:
-   - partition by `customer_id`
-   - order by `event_ts` descending, then numeric `ingestion_id` descending
-3. Split the dimension into historical and current rows.
-4. Join compacted changes to current rows.
-5. Classify each event as:
-   - no-op `UPSERT`
-   - changed `UPSERT`
-   - new-customer `UPSERT`
-   - matched `DELETE`
-   - unmatched `DELETE`
-6. Close only current records affected by changed upserts or matched deletes.
-7. Insert replacement rows only for new or changed upserts.
-8. Union historical, unchanged current, closed current, and inserted current rows.
-
-Important implementation details:
-
-- Attribute comparison uses Spark null-safe equality with `eqNullSafe`.
-- Dates are cast with `to_date`.
-- The open-ended SCD date is represented as `9999-12-31`.
-- `current_customer_snapshot` filters to `is_current = true` and emits only business-facing columns.
+1. Split the dataframe into `DIM` rows and `EVENT` rows.
+2. Cast effective dates, `is_current`, and `version` on the dimension rows.
+3. Keep only `UPSERT` event rows and derive `event_date` from `event_ts`.
+4. Join events to the current dimension rows by `customer_id`.
+5. Compare tracked attributes with null-safe equality.
+6. Close only existing current rows whose tracked attributes changed.
+7. Insert one new current row for changed existing customers and new customers.
+8. Keep no-op customers unchanged.
+9. Return a current snapshot by filtering `is_current = true`.

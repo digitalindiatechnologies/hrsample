@@ -16,11 +16,7 @@ class PySparkJobInterface(abc.ABC):
         return self.spark.read.options(header=True, inferSchema=True).csv(input_path)
 
     @abc.abstractmethod
-    def latest_customer_changes(self, customer_events_df: DataFrame) -> DataFrame:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def apply_customer_scd2(self, existing_dim_df: DataFrame, customer_events_df: DataFrame) -> DataFrame:
+    def apply_customer_scd2(self, customer_activity_df: DataFrame) -> DataFrame:
         raise NotImplementedError
 
     @abc.abstractmethod
